@@ -181,9 +181,12 @@ extension CGContext {
 
 #if os(macOS)
 public func CGGetLastMouseDelta() -> (x: Int32, y: Int32) {
-  var pair: (x: Int32, y: Int32) = (0, 0)
-  __CGGetLastMouseDelta(&pair.x, &pair.y)
-  return pair
+// DCC:  var pair: (x: Int32, y: Int32) = (0, 0)
+//  __CGGetLastMouseDelta(&pair.x, &pair.y)
+  var x: Int32 = 0
+  var y: Int32 = 0
+  __CGGetLastMouseDelta(&x, &y)
+  return (x,y)
 }
 #endif
 

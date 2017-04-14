@@ -60,22 +60,30 @@ extension Decimal {
 
     public mutating func add(_ other: Decimal) {
         var rhs = other
-        NSDecimalAdd(&self, &self, &rhs, .plain)
+// DCC:     NSDecimalAdd(&self, &self, &rhs, .plain)
+        var selfCopy = self
+        NSDecimalAdd(&self, &selfCopy, &rhs, .plain)
     }
 
     public mutating func subtract(_ other: Decimal) {
         var rhs = other
-        NSDecimalSubtract(&self, &self, &rhs, .plain)
+// DCC: NSDecimalSubtract(&self, &self, &rhs, .plain)
+        var selfCopy = self
+        NSDecimalSubtract(&self, &selfCopy, &rhs, .plain)
     }
 
     public mutating func multiply(by other: Decimal) {
-        var rhs = other
-        NSDecimalMultiply(&self, &self, &rhs, .plain)
+         var rhs = other
+// DCC:       NSDecimalMultiply(&self, &self, &rhs, .plain)
+        var selfCopy = self;
+        NSDecimalMultiply(&self, &selfCopy, &rhs, .plain)
     }
 
     public mutating func divide(by other: Decimal) {
         var rhs = other
-        NSDecimalDivide(&self, &self, &rhs, .plain)
+        // DCC: NSDecimalDivide(&self, &self, &rhs, .plain)
+        var selfCopy = self
+        NSDecimalDivide(&self, &selfCopy, &rhs, .plain)
     }
 
     public mutating func negate() {

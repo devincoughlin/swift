@@ -165,7 +165,8 @@ extension MutableCollection {
     var i = index(after: pivot)
     while i < endIndex {
       if try !belongsInSecondPartition(self[i]) {
-        swap(&self[i], &self[pivot])
+        // DCC: swap(&self[i], &self[pivot])
+        (self[i], self[pivot]) = (self[pivot], self[i])
         formIndex(after: &pivot)
       }
       formIndex(after: &i)
@@ -217,7 +218,8 @@ extension MutableCollection where Self : BidirectionalCollection {
         break Loop
       } while false
 
-      swap(&self[lo], &self[hi])
+      // DCC: swap(&self[lo], &self[hi])
+      (self[lo], self[hi]) = (self[hi], self[lo])
       formIndex(after: &lo)
     }
 

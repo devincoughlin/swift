@@ -149,7 +149,8 @@ extension MutableCollection
     var f = subrange.lowerBound
     var l = index(before: subrange.upperBound)
     while f < l {
-      swap(&self[f], &self[l])
+      // DCC: swap(&self[f], &self[l])
+      (self[f], self[l]) = (self[l], self[f])
       formIndex(after: &f)
       formIndex(before: &l)
     }
@@ -195,7 +196,8 @@ extension MutableCollection
         repeat {
           formIndex(before: &j)
         } while !(elementAtBeforeI < self[j])
-        swap(&self[beforeI], &self[j])
+        // DCC: swap(&self[beforeI], &self[j])
+        (self[beforeI], self[j]) = (self[j], self[beforeI])
         _reverseSubrange(i..<endIndex)
         return .success
       }

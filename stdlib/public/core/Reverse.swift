@@ -27,7 +27,8 @@ extension MutableCollection where Self : BidirectionalCollection {
     var f = startIndex
     var l = index(before: endIndex)
     while f < l {
-      swap(&self[f], &self[l])
+      // DCC: swap(&self[f], &self[l])
+      (self[f], self[l]) = (self[l], self[f])
       formIndex(after: &f)
       formIndex(before: &l)
     }

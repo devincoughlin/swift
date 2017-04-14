@@ -255,10 +255,16 @@ extension String {
               result = .emptyInput
             }
           } else {
-            result = _decoder.decode(&(self._base!))
+            // DCC: result = _decoder.decode(&(self._base!))
+            var localBase = self._base!
+            result = _decoder.decode(&localBase)
+            self._base = localBase
           }
         } else {
-          result = _decoder.decode(&(self._iterator!))
+          // DCC: result = _decoder.decode(&(self._iterator!))
+          var localIterator = self._iterator!
+          result = _decoder.decode(&localIterator)
+          self._iterator = localIterator
         }
         switch result {
         case .scalarValue(let us):
