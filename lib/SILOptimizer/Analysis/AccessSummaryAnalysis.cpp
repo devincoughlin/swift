@@ -172,6 +172,8 @@ void AccessSummaryAnalysis::processFullApply(FunctionInfo *callerInfo,
   // Since user-provided closures are always in the same module as their callee
   // This likely indicates a missing begin_access before an open-coded
   // call.
+
+  // TODO: Also need to check for empty callee
   if (!callee)
     return;
 
