@@ -35,6 +35,7 @@
 #include "swift/SIL/SILArgument.h"
 #include "swift/SIL/SILInstruction.h"
 #include "swift/SIL/Projection.h"
+#include "swift/SILOptimizer/Analysis/AccessSummaryAnalysis.h"
 #include "swift/SILOptimizer/Analysis/PostOrderAnalysis.h"
 #include "swift/SILOptimizer/PassManager/Passes.h"
 #include "swift/SILOptimizer/PassManager/Transforms.h"
@@ -164,22 +165,65 @@ public:
 
 /// Records an access to an address and the single subpath of projections
 /// that was performed on the address, if such a single subpath exists.
+/// The kind of conflicting access.
+enum class RecordedAccessKind {
+  BeginInstruction,
+  NoescapeClosureCapture
+};
+
 class RecordedAccess {
 private:
-  BeginAccessInst *Inst;
+  RecordedAccessKind RecordKind;
+  union {
+   BeginAccessInst *Inst;
+    struct {
+      SILAccessKind ClosureAccessKind;
+      SILLocation ClosureAccessLoc;
+    };
+  };
+
   ProjectionPath SubPath;
-
 public:
-  RecordedAccess(BeginAccessInst *BAI, const ProjectionPath &SubPath)
-      : Inst(BAI), SubPath(SubPath) {}
+  RecordedAccess(BeginAccessInst *BAI, const ProjectionPath &SubPath) :
+      RecordKind(RecordedAccessKind::BeginInstruction), Inst(BAI),
+      SubPath(SubPath) { }
 
-  BeginAccessInst *getInstruction() const { return Inst; }
+  RecordedAccess(SILAccessKind ClosureAccessKind,
+                 SILLocation ClosureAccessLoc, const ProjectionPath &SubPath) :
+      RecordKind(RecordedAccessKind::NoescapeClosureCapture),
+      ClosureAccessKind(ClosureAccessKind), ClosureAccessLoc(ClosureAccessLoc),
+      SubPath(SubPath) { }
 
-  SILAccessKind getAccessKind() const { return Inst->getAccessKind(); }
+  RecordedAccessKind getRecordKind() const {
+    return RecordKind;
+  }
 
-  SILLocation getAccessLoc() const { return Inst->getLoc(); }
+  BeginAccessInst *getInstruction() const {
+    assert(RecordKind == RecordedAccessKind::BeginInstruction);
+    return Inst;
+  }
 
-  const ProjectionPath &getSubPath() const { return SubPath; }
+  SILAccessKind getAccessKind() const {
+    switch (RecordKind) {
+      case RecordedAccessKind::BeginInstruction:
+        return Inst->getAccessKind();
+      case RecordedAccessKind::NoescapeClosureCapture:
+        return ClosureAccessKind;
+    };
+  }
+
+  SILLocation getAccessLoc() const {
+    switch (RecordKind) {
+      case RecordedAccessKind::BeginInstruction:
+        return Inst->getLoc();
+      case RecordedAccessKind::NoescapeClosureCapture:
+        return ClosureAccessLoc;
+    };
+  }
+
+  const ProjectionPath &getSubPath() const {
+    return SubPath;
+  }
 };
 
 /// Records the in-progress accesses to a given sub path.
@@ -628,10 +672,18 @@ static void diagnoseExclusivityViolation(const ConflictingAccess &Violation,
   const RecordedAccess &FirstAccess = Violation.FirstAccess;
   const RecordedAccess &SecondAccess = Violation.SecondAccess;
 
-  DEBUG(llvm::dbgs() << "Conflict on " << *FirstAccess.getInstruction()
-                     << "\n  vs " << *SecondAccess.getInstruction()
-                     << "\n  in function "
-                     << *FirstAccess.getInstruction()->getFunction());
+  if (SecondAccess.getRecordKind() == RecordedAccessKind::BeginInstruction) {
+    DEBUG(llvm::dbgs() << "Conflict on " << FirstAccess.getInstruction()
+                       << "\n  vs " << SecondAccess.getInstruction()
+                       << "\n  in function "
+                       << FirstAccess.getInstruction()->getFunction());
+  } else {
+    DEBUG(llvm::dbgs() << "Conflict on " << FirstAccess.getInstruction()
+                       << "\n  vs "
+                       << getSILAccessKindName(SecondAccess.getAccessKind())
+                       << "\n  in function "
+                       << FirstAccess.getInstruction()->getFunction());
+  }
 
   // Can't have a conflict if both accesses are reads.
   assert(!(FirstAccess.getAccessKind() == SILAccessKind::Read &&
@@ -662,9 +714,11 @@ static void diagnoseExclusivityViolation(const ConflictingAccess &Violation,
         diagnose(Ctx, MainAccess.getAccessLoc().getSourceLoc(), DiagnosticID,
                  PathDescription, AccessKindForMain);
     D.highlight(RangeForMain);
-    tryFixItWithCallToCollectionSwapAt(FirstAccess.getInstruction(),
-                                       SecondAccess.getInstruction(),
-                                       CallsToSwap, Ctx, D);
+    if (SecondAccess.getRecordKind() == RecordedAccessKind::BeginInstruction) {
+      tryFixItWithCallToCollectionSwapAt(FirstAccess.getInstruction(),
+                                         SecondAccess.getInstruction(),
+                                         CallsToSwap, Ctx, D);
+    }
   } else {
     auto DiagnosticID = (Ctx.LangOpts.isSwiftVersion3() ?
                          diag::exclusivity_access_required_unknown_decl_swift3 :
@@ -833,7 +887,102 @@ Optional<RecordedAccess> shouldReportAccess(const AccessInfo &Info,
   return Info.conflictsWithAccess(Kind, SubPath);
 }
 
-static void checkStaticExclusivity(SILFunction &Fn, PostOrderFunctionInfo *PO) {
+/// Use the summary analysis to check whether a call to the given
+/// function would conflict with any in progress accesses. The starting
+/// index indicates what index into the the callee's parameters the
+/// arguments array starts at -- this is useful for partial_apply functions,
+/// which pass only a suffix of the callee's arguments at the apply site.
+static void checkForViolationWithCall(
+    const StorageMap &Accesses, SILFunction *Callee, unsigned StartingAtIndex,
+    OperandValueArrayRef Arguments, AccessSummaryAnalysis *ASA,
+    llvm::SmallVectorImpl<ConflictingAccess> &ConflictingAccesses) {
+  const AccessSummaryAnalysis::FunctionSummary &FS =
+      ASA->getOrCreateSummary(Callee);
+
+  // For each argument in the suffix of the callee parameters being passed
+  // at this call site, determine whether the parameters will be accessed
+  // in a way that conflicts with any currently in progress accesses.
+  // If so, diagnose.
+  for (unsigned ArgumentIndex : indices(Arguments)) {
+    unsigned CalleeIndex = StartingAtIndex + ArgumentIndex;
+
+    const AccessSummaryAnalysis::ParameterSummary &PS =
+        FS.getAccessForParameter(CalleeIndex);
+    Optional<SILAccessKind> Kind = PS.getAccessKind();
+    if (!Kind)
+      continue;
+
+    SILValue Argument = Arguments[ArgumentIndex];
+    assert(Argument->getType().isAddress());
+
+    const AccessedStorage &Storage = findAccessedStorage(Argument);
+    auto AccessIt = Accesses.find(Storage);
+    if (AccessIt == Accesses.end())
+      continue;
+    const AccessInfo &Info = AccessIt->getSecond();
+
+    // TODO: For now, treat a summarized access as an access to the whole
+    // address. Once the summary analysis is sensitive to stored properties,
+    // this should be updated look at the subpaths from the summary.
+    const ProjectionPath &SubPath =
+        ProjectionPath(Argument->getType(), Argument->getType());
+    if (auto Conflict = shouldReportAccess(Info, *Kind, SubPath)) {
+      SILLocation AccessLoc = PS.getAccessLoc();
+      const auto &SecondAccess =  RecordedAccess(*Kind, AccessLoc, SubPath);
+      ConflictingAccesses.emplace_back(Storage, *Conflict, SecondAccess);
+    }
+  }
+}
+
+static PartialApplyInst *lookThroughForPartialApply(SILValue V) {
+  while (true) {
+    if (auto CFI = dyn_cast<ConvertFunctionInst>(V)) {
+      V = CFI->getOperand();
+      continue;
+    }
+
+    if (auto *PAI = dyn_cast<PartialApplyInst>(V))
+      return PAI;
+
+    return nullptr;
+  }
+}
+
+/// Checks whether any of the arguments to the apply are closures and diagnoses
+/// if any of the @inout_aliasable captures passed to those closures have
+/// in-progress accesses that would conflict with any access the summary
+/// says the closure would perform.
+static void checkForViolationsInNoEscapeClosures(
+    const StorageMap &Accesses, FullApplySite FAS, AccessSummaryAnalysis *ASA,
+    llvm::SmallVectorImpl<ConflictingAccess> &ConflictingAccesses) {
+
+  SILFunction *Callee = FAS.getCalleeFunction();
+  if (Callee && !Callee->empty()) {
+    // Check for violation with directly called closure
+    checkForViolationWithCall(Accesses, Callee, 0, FAS.getArguments(), ASA,
+                              ConflictingAccesses);
+  }
+
+  // Check for violation with closures passed as arguments
+  for (SILValue Argument : FAS.getArguments()) {
+    auto *PAI = lookThroughForPartialApply(Argument);
+    if (!PAI)
+      continue;
+
+    SILFunction *Closure = PAI->getCalleeFunction();
+    if (!Closure || Closure->empty())
+      continue;
+
+    // Check the closure's captures, which are a suffix of the closure's
+    // parameters.
+    unsigned StartIndex =
+        Closure->getArguments().size() - PAI->getNumCallArguments();
+    checkForViolationWithCall(Accesses, Closure, StartIndex,
+                              PAI->getArguments(), ASA, ConflictingAccesses);
+  }
+}
+static void checkStaticExclusivity(SILFunction &Fn, PostOrderFunctionInfo *PO,
+                                   AccessSummaryAnalysis *ASA) {
   // The implementation relies on the following SIL invariants:
   //    - All incoming edges to a block must have the same in-progress
   //      accesses. This enables the analysis to not perform a data flow merge
@@ -928,6 +1077,12 @@ static void checkStaticExclusivity(SILFunction &Fn, PostOrderFunctionInfo *PO) {
         // Record calls to swap() for potential Fix-Its.
         if (isCallToStandardLibrarySwap(AI, Fn.getASTContext()))
           CallsToSwap.push_back(AI);
+        else
+          checkForViolationsInNoEscapeClosures(Accesses, AI, ASA,
+                                               ConflictingAccesses);
+      } else if (auto *TAI = dyn_cast<TryApplyInst>(&I)) {
+        checkForViolationsInNoEscapeClosures(Accesses, TAI, ASA,
+                                             ConflictingAccesses);
       }
 
       // Sanity check to make sure entries are properly removed.
@@ -958,7 +1113,13 @@ private:
       return;
 
     PostOrderFunctionInfo *PO = getAnalysis<PostOrderAnalysis>()->get(Fn);
-    checkStaticExclusivity(*Fn, PO);
+    auto *ASA = getAnalysis<AccessSummaryAnalysis>();
+
+    // TODO: DO NOT COMMIT: For compatibility test purposes only
+    const AccessSummaryAnalysis::FunctionSummary &summary =
+        ASA->getOrCreateSummary(Fn);
+    (void)summary;
+    checkStaticExclusivity(*Fn, PO, ASA);
   }
 };
 
