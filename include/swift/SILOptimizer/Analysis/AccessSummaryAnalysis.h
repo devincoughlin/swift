@@ -19,9 +19,11 @@
 #ifndef SWIFT_SILOPTIMIZER_ANALYSIS_ACCESS_SUMMARY_ANALYSIS_H_
 #define SWIFT_SILOPTIMIZER_ANALYSIS_ACCESS_SUMMARY_ANALYSIS_H_
 
+#include "swift/SIL/Projection.h"
 #include "swift/SIL/SILFunction.h"
 #include "swift/SIL/SILInstruction.h"
 #include "swift/SILOptimizer/Analysis/BottomUpIPAnalysis.h"
+#include "swift/SILOptimizer/Utils/IndexTrieNode.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
@@ -30,9 +32,10 @@ namespace swift {
 
 class AccessSummaryAnalysis : public BottomUpIPAnalysis {
 public:
-  /// Summarizes the accesses that a function begins on a parameter.
-  class ParameterSummary {
-  private:
+
+  class SubAccess {
+    ProjectionPath Path; // TODO: Probably shouldn't be stored here
+
     /// The kind of access begun on the argument.
     /// 'None' means no access performed.
     Optional<SILAccessKind> Kind = None;
@@ -40,10 +43,30 @@ public:
     /// The location of the access. Used for diagnostics.
     SILLocation AccessLoc = SILLocation((Expr *)nullptr);
 
-  public:
     Optional<SILAccessKind> getAccessKind() const { return Kind; }
 
     SILLocation getAccessLoc() const { return AccessLoc; }
+
+    /// Merge in an access to the subpath of the given kind at the given
+    /// location. Returns true if the merge caused the summary to change.
+    bool mergeWith(SILAccessKind otherKind, SILLocation otherLoc);
+
+  };
+
+  /// Summarizes the accesses that a function begins on a parameter.
+  class ParameterSummary {
+  private:
+
+  typedef llvm::SmallDenseMap<ProjectionPath, SubAccess, 4> SubAccessMap;
+
+  SubAccessMap SubAccesses;
+
+  public:
+    // TODO: remove this
+    Optional<SILAccessKind> getAccessKind() const { llvm_unreachable("Remove me"); }
+
+    // TODO: remove this
+    SILLocation getAccessLoc() const { llvm_unreachable("Remove me"); }
 
     /// The lattice operation on parameter summaries.
     bool mergeWith(const ParameterSummary &other);
@@ -126,7 +149,13 @@ public:
   };
 
 public:
-  AccessSummaryAnalysis() : BottomUpIPAnalysis(AnalysisKind::AccessSummary) {}
+  AccessSummaryAnalysis() : BottomUpIPAnalysis(AnalysisKind::AccessSummary) {
+    SubPathTrie = new IndexTrieNode();
+  }
+
+  ~AccessSummaryAnalysis() {
+    delete SubPathTrie;
+  }
 
   /// Returns a summary of the accesses performed by the given function.
   const FunctionSummary &getOrCreateSummary(SILFunction *Fn);
@@ -187,6 +216,9 @@ private:
   llvm::DenseMap<SILFunction *, FunctionInfo *> FunctionInfos;
 
   llvm::SpecificBumpPtrAllocator<FunctionInfo> Allocator;
+
+  /// TODO: Document
+  IndexTrieNode *SubPathTrie;
 };
 
 } // end namespace swift

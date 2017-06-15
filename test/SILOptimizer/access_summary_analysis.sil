@@ -101,6 +101,19 @@ bb0(%0 : $*(Int, Int)):
   return %3 : $()
 }
 
+
+// CHECK-LABEL: @modifyStructElement
+// CHECK-NEXT: ([modify .f])
+sil private @modifyStructElement : $@convention(thin) (@inout_aliasable StructWithStoredProperties) -> () {
+bb0(%0 : $*StructWithStoredProperties):
+  %1 = begin_access [modify] [unknown] %0 : $*StructWithStoredProperties
+  %2 = struct_element_addr %1 : $*StructWithStoredProperties, #StructWithStoredProperties.f
+  end_access %1 : $*StructWithStoredProperties
+  %3 = tuple ()
+  return %3 : $()
+}
+
+
 // CHECK-LABEL: @callClosureThatModifiesCapture
 // CHECK-NEXT: (modify, none)
 sil private @callClosureThatModifiesCapture : $@convention(thin) (@inout_aliasable Int, Int) -> () {

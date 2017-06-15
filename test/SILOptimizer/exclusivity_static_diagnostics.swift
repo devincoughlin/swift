@@ -285,3 +285,11 @@ func inoutSamePropertyInSameTuple() {
   // expected-error@-1{{overlapping accesses to 't.name2.f1', but modification requires exclusive access; consider copying to a local variable}}
   // expected-note@-2{{conflicting access is here}}
 }
+
+func separateStructStoredPropertiesNoEscapeClosure() {
+  var s = StructWithTwoStoredProp()
+  takesInoutAndNoEscapeClosureThatThrows(&s.f1) {
+    s.f2 = 1 // no-error
+  }
+}
+

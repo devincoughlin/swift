@@ -200,6 +200,33 @@ void AccessSummaryAnalysis::processCall(FunctionInfo *callerInfo,
 
 bool AccessSummaryAnalysis::ParameterSummary::mergeWith(SILAccessKind otherKind,
                                                         SILLocation otherLoc) {
+//  // In the lattice, a modification-like accesses subsume a read access or no
+//  // access.
+//  if (!Kind.hasValue() ||
+//      (*Kind == SILAccessKind::Read && otherKind != SILAccessKind::Read)) {
+//    Kind = otherKind;
+//    AccessLoc = otherLoc;
+//    return true;
+//  }
+//
+//  return false;
+
+  llvm_unreachable("implement me");
+
+}
+
+bool AccessSummaryAnalysis::ParameterSummary::mergeWith(
+    const ParameterSummary &other) {
+//  if (other.Kind.hasValue())
+//    return mergeWith(*other.Kind, other.AccessLoc);
+//  return false;
+
+
+  llvm_unreachable("implement me");
+}
+
+bool AccessSummaryAnalysis::SubAccess::mergeWith(SILAccessKind otherKind,
+                                                 SILLocation otherLoc) {
   // In the lattice, a modification-like accesses subsume a read access or no
   // access.
   if (!Kind.hasValue() ||
@@ -209,13 +236,6 @@ bool AccessSummaryAnalysis::ParameterSummary::mergeWith(SILAccessKind otherKind,
     return true;
   }
 
-  return false;
-}
-
-bool AccessSummaryAnalysis::ParameterSummary::mergeWith(
-    const ParameterSummary &other) {
-  if (other.Kind.hasValue())
-    return mergeWith(*other.Kind, other.AccessLoc);
   return false;
 }
 
@@ -302,6 +322,8 @@ AccessSummaryAnalysis::getOrCreateSummary(SILFunction *fn) {
 void AccessSummaryAnalysis::AccessSummaryAnalysis::invalidate() {
   FunctionInfos.clear();
   Allocator.DestroyAll();
+  delete SubPathTrie;
+  SubPathTrie = new IndexTrieNode();
 }
 
 void AccessSummaryAnalysis::invalidate(SILFunction *F, InvalidationKind K) {
