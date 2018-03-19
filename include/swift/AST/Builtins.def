@@ -294,6 +294,18 @@ BUILTIN_SIL_OPERATION(Gep, "gep", Integer)
 /// allocated element type 'E'.
 BUILTIN_SIL_OPERATION(GetTailAddr, "getTailAddr", Integer)
 
+/// TODO: DCC Document
+BUILTIN_SIL_OPERATION(BeginUnpairedModifyAccess, "beginUnpairedModifyAccess",
+                      Special)
+
+/// TODO: DCC Document
+BUILTIN_SIL_OPERATION(BeginUnpairedReadAccess, "beginUnpairedReadAccess",
+                      Special)
+
+/// TODO: DCC Document
+BUILTIN_SIL_OPERATION(EndUnpairedAccess, "endUnpairedAccess",
+                      Special)
+
 /// condfail(Int1) -> ()
 /// Triggers a runtime failure if the condition is true.
 BUILTIN_SIL_OPERATION(CondFail, "condfail", Special)

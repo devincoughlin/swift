@@ -241,26 +241,100 @@ ExclusiveAccessTestSuite.test("InoutWriteEscapeWrite")
 }
 
 class ClassWithStoredProperty {
-  var f = 7
+  final var f = 7
 }
 
-// FIXME: This should trap with a modify/modify violation at run time.
-ExclusiveAccessTestSuite.test("KeyPathClassStoredProp")
+ExclusiveAccessTestSuite.test("KeyPathInoutDirectWriteClassStoredProp")
   .skip(.custom(
     { _isFastAssertConfiguration() },
     reason: "this trap is not guaranteed to happen in -Ounchecked"))
-//  .crashOutputMatches("Previous access (a modification) started at")
-//  .crashOutputMatches("Current access (a modification) started at")
+  .crashOutputMatches("Previous access (a modification) started at")
+  .crashOutputMatches("Current access (a modification) started at")
   .code
 {
   let getF = \ClassWithStoredProperty.f
   let c = ClassWithStoredProperty()
 
-//  expectCrashLater()
+  expectCrashLater()
+  modifyAndPerform(&c[keyPath: getF]) {
+    c.f = 12
+  }
+}
+
+
+// DCC: This will log
+ExclusiveAccessTestSuite.test("DirectInoutKeyPathWriteClassStoredProp")
+  .skip(.custom(
+    { _isFastAssertConfiguration() },
+    reason: "this trap is not guaranteed to happen in -Ounchecked"))
+  .crashOutputMatches("Previous access (a modification) started at")
+  .crashOutputMatches("Current access (a modification) started at")
+  .code
+{
+  let getF = \ClassWithStoredProperty.f
+  let c = ClassWithStoredProperty()
+
+  expectCrashLater()
+  modifyAndPerform(&c[keyPath: getF]) {
+    c.f = 12
+  }
+}
+
+/* DCC:
+ExclusiveAccessTestSuite.test("KeyPathReadDirectWriteClassStoredProp")
+  .skip(.custom(
+    { _isFastAssertConfiguration() },
+    reason: "this trap is not guaranteed to happen in -Ounchecked"))
+  .crashOutputMatches("Previous access (a read) started at")
+  .crashOutputMatches("Current access (a modification) started at")
+  .code
+{
+  let getF = \ClassWithStoredProperty.f
+  let c = ClassWithStoredProperty()
+
+  expectCrashLater()
+  readAndPerform(&c[keyPath: getF]) {
+    c.f = 12
+  }
+}
+*/
+
+// TODO: DCC: Figure out what to do here
+/*
+ExclusiveAccessTestSuite.test("KeyPathInoutKeyPathWriteClassStoredProp")
+  .skip(.custom(
+    { _isFastAssertConfiguration() },
+    reason: "this trap is not guaranteed to happen in -Ounchecked"))
+  .crashOutputMatches("Previous access (a modification) started at")
+  .crashOutputMatches("Current access (a modification) started at")
+  .code
+{
+  let getF = \ClassWithStoredProperty.f
+  let c = ClassWithStoredProperty()
+
+  expectCrashLater()
   modifyAndPerform(&c[keyPath: getF]) {
     c[keyPath: getF] = 12
   }
 }
 
+ExclusiveAccessTestSuite.test("KeyPathInoutKeyPathReadClassStoredProp")
+  .skip(.custom(
+    { _isFastAssertConfiguration() },
+    reason: "this trap is not guaranteed to happen in -Ounchecked"))
+  .crashOutputMatches("Previous access (a modification) started at")
+  .crashOutputMatches("Current access (a modification) started at")
+  .code
+{
+  let getF = \ClassWithStoredProperty.f
+  let c = ClassWithStoredProperty()
+
+  expectCrashLater()
+  modifyAndPerform(&c[keyPath: getF]) {
+    let y = c[keyPath: getF]
+    _blackHole(y)
+  }
+}
+*/
 
 runAllTests()

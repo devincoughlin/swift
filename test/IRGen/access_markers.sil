@@ -105,6 +105,27 @@ bb0(%0 : $A, %1 : $*Builtin.UnsafeValueBuffer):
   return %20 : $()
 }
 
+// CHECK-LABEL: define {{.*}}void @testBeginUnpairedModify(
+sil @testBeginUnpairedModify : $(@guaranteed A, @inout Builtin.UnsafeValueBuffer) -> () {
+bb0(%0 : $A, %1 : $*Builtin.UnsafeValueBuffer):
+  %2 = ref_element_addr %0 : $A, #A.property
+  // CHECK: call void @swift_beginAccess(i8* [[T1:%.*]], [[BUFFER]]* [[SCRATCH:%1]], [[SIZE]] 1, i8* [[PC:%.*]])
+  begin_unpaired_access [modify] [dynamic] %2 : $*Int, %1 : $*Builtin.UnsafeValueBuffer
+  %20 = tuple ()
+  return %20 : $()
+}
+
+// CHECK-LABEL: define {{.*}}void @testBeginUnpairedRead(
+sil @testBeginUnpairedRead : $(@guaranteed A, @inout Builtin.UnsafeValueBuffer) -> () {
+bb0(%0 : $A, %1 : $*Builtin.UnsafeValueBuffer):
+  %2 = ref_element_addr %0 : $A, #A.property
+  // The '16 'for exclusivity flags indicates read + warning.
+  // CHECK: call void @swift_beginAccess(i8* [[T1:%.*]], [[BUFFER]]* [[SCRATCH:%1]], [[SIZE]] 0, i8* [[PC:%.*]])
+  begin_unpaired_access [read] [dynamic] %2 : $*Int, %1 : $*Builtin.UnsafeValueBuffer
+  %20 = tuple ()
+  return %20 : $()
+}
+
 sil @writeEmptyTuple : $(@inout ()) -> ()
 sil @readEmptyTuple : $(@in_guaranteed ()) -> ()
 
@@ -133,6 +154,7 @@ bb0(%0 : ${ var () }):
 
 // rdar://31964550
 // Just check that this doesn't crash.
+// CHECK-LABEL: define {{.*}}void @testCopyAddr(
 sil @testCopyAddr : $(@guaranteed A) -> () {
 bb0(%0 : $A):
   %1 = alloc_stack $Any

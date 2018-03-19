@@ -647,21 +647,37 @@ internal enum KeyPathComponent: Hashable {
 // into it is underway.
 @_fixed_layout // FIXME(sil-serialize-all)
 @_versioned // FIXME(sil-serialize-all)
-internal final class ClassHolder {
+internal final class ClassHolder<ProjectionType> {
+  internal typealias AccessRecord = Builtin.UnsafeValueBuffer
+
   @_versioned // FIXME(sil-serialize-all)
   internal let previous: AnyObject?
   @_versioned // FIXME(sil-serialize-all)
   internal let instance: AnyObject
+  @_versioned // FIXME(sil-serialize-all)
+  internal let accessRecord: UnsafeMutablePointer<AccessRecord>
 
   @_inlineable // FIXME(sil-serialize-all)
   @_versioned // FIXME(sil-serialize-all)
-  internal init(previous: AnyObject?, instance: AnyObject) {
+  internal init(
+      previous: AnyObject?,
+      instance: AnyObject,
+      accessingAddress address: UnsafeRawPointer,
+      type: ProjectionType.Type
+  ) {
     self.previous = previous
     self.instance = instance
+
+    accessRecord = UnsafeMutablePointer<AccessRecord>.allocate(capacity: 1)
+    Builtin.beginUnpairedModifyAccess(address._rawValue, accessRecord._rawValue,
+                                      type)
   }
   @_inlineable // FIXME(sil-serialize-all)
   @_versioned // FIXME(sil-serialize-all)
-  deinit {}
+  deinit {
+    Builtin.endUnpairedAccess(accessRecord._rawValue)
+    accessRecord.deallocate()
+  }
 }
 
 // A class that triggers writeback to a pointer when destroyed.
@@ -1253,7 +1269,22 @@ internal struct RawKeyPathComponent {
       let baseObj = unsafeBitCast(base, to: AnyObject.self)
       let basePtr = UnsafeRawPointer(Builtin.bridgeToRawPointer(baseObj))
       defer { _fixLifetime(baseObj) }
-      return .continue(basePtr.advanced(by: offset)
+
+      // DCC: Start read
+
+      let offsetAddress = basePtr.advanced(by: offset)
+
+      // Move typealias someplace better
+      typealias AccessRecord = Builtin.UnsafeValueBuffer
+      // Should not need an allocation here!!!
+      let accessRecord = UnsafeMutablePointer<AccessRecord>.allocate(capacity: 1)
+      Builtin.beginUnpairedReadAccess(offsetAddress._rawValue, accessRecord._rawValue,
+                                      NewValue.self)
+      defer {
+        Builtin.endUnpairedAccess(accessRecord._rawValue)
+        accessRecord.deallocate()
+      }
+      return .continue(offsetAddress
         .assumingMemoryBound(to: NewValue.self)
         .pointee)
 
@@ -1313,12 +1344,16 @@ internal struct RawKeyPathComponent {
       // AnyObject memory can alias any class reference memory, so we can
       // assume type here
       let object = base.assumingMemoryBound(to: AnyObject.self).pointee
-      // The base ought to be kept alive for the duration of the derived access
-      keepAlive = keepAlive == nil
-        ? object
-        : ClassHolder(previous: keepAlive, instance: object)
-      return UnsafeRawPointer(Builtin.bridgeToRawPointer(object))
+      let offsetAddress = UnsafeRawPointer(Builtin.bridgeToRawPointer(object))
             .advanced(by: offset)
+
+      // Keep the  base alive for the duration of the derived access and also
+      // enforce exclusive access to the address.
+      keepAlive = ClassHolder(previous: keepAlive, instance: object,
+                              accessingAddress: offsetAddress,
+                              type: NewValue.self)
+
+      return offsetAddress
     
     case .mutatingGetSet(id: _, get: let rawGet, set: let rawSet,
                          argument: let argument):
