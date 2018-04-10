@@ -708,10 +708,8 @@ static void diagnoseExclusivityViolation(const ConflictingAccess &Violation,
   unsigned AccessKindForMain =
       static_cast<unsigned>(MainAccess.getAccessKind());
 
-  // For now, all exclusivity violations are warning in Swift 3 mode.
-  // Also treat some violations as warnings to allow them to be staged in.
-  bool DiagnoseAsWarning = Violation.getAlwaysDiagnoseAsWarning() ||
-      Ctx.LangOpts.isSwiftVersion3();
+  // Treat some violations as warnings to allow them to be staged in.
+  bool DiagnoseAsWarning = Violation.getAlwaysDiagnoseAsWarning();
 
   if (const ValueDecl *VD = Storage.getStorageDecl()) {
     // We have a declaration, so mention the identifier in the diagnostic.
