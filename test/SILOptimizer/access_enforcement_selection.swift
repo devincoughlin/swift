@@ -1,4 +1,4 @@
-// RUN: %target-swift-frontend -enforce-exclusivity=checked -Onone -emit-sil -parse-as-library %s -Xllvm -debug-only=access-enforcement-selection 2>&1 | %FileCheck %s
+// RUN: %target-swift-frontend -enforce-exclusivity=checked -Onone -emit-sil -parse-as-library %s -Xllvm -debug-only=access-enforcement-selection -verify 2>&1 | %FileCheck %s
 // REQUIRES: asserts
 
 // This is a source-level test because it helps bring up the entire -Onone pipeline with the access markers.
@@ -21,6 +21,7 @@ func takeEscapingClosure(_: @escaping ()->Int) {}
 // Generate an alloc_stack that escapes into a closure.
 public func captureStack() -> Int {
   // Use a `var` so `x` isn't treated as a literal.
+  // expected-warning@+1{{variable 'x' was never mutated; consider changing to 'let' constant}}
   var x = 3
   takeClosure { return x }
   return x
@@ -37,6 +38,7 @@ public func captureStack() -> Int {
 
 // Generate an alloc_stack that does not escape into a closure.
 public func nocaptureStack() -> Int {
+  // expected-warning@+1{{variable 'x' was never mutated; consider changing to 'let' constant}}
   var x = 3
   takeClosure { return 5 }
   return x
@@ -52,6 +54,8 @@ public func nocaptureStack() -> Int {
 public func captureStackWithInoutInProgress() -> Int {
   // Use a `var` so `x` isn't treated as a literal.
   var x = 3
+  // expected-error@+2{{overlapping accesses to 'x', but modification requires exclusive access; consider copying to a local variable}}
+  // expected-note@+1{{conflicting access is here}}
   takeClosureAndInout(&x) { return x }
   return x
 }
